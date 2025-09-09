@@ -1,27 +1,25 @@
-// Обёртка для триггера: без аргументов
 function copyATDataToHistory() {
   copyAllATTables();
 }
 
-// Пересоздание триггера (пример: каждую минуту)
 function createOrUpdateTimeTrigger() {
-  const triggers = ScriptApp.getProjectTriggers();
-  for (const t of triggers) {
+  ScriptApp.getProjectTriggers().forEach(t => {
     if (t.getHandlerFunction() === 'copyATDataToHistory') {
       ScriptApp.deleteTrigger(t);
     }
-    if (t.getHandlerFunction() === 'copyTableWithDiff') {
-      // На всякий случай удалим неверный
-      ScriptApp.deleteTrigger(t);
-    }
-  }
+  });
+
+  // Создаём новый — каждый день в 8 утра по Киеву
   ScriptApp.newTrigger('copyATDataToHistory')
     .timeBased()
-    .everyMinutes(1)
+    .atHour(8)
+    .everyDays(1)
+    .inTimezone("Europe/Kyiv")
     .create();
 }
 
-// Меню для ручного запуска и ремонта триггера
+
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📊 Аналітика')
@@ -30,7 +28,6 @@ function onOpen() {
     .addToUi();
 }
 
-// Основной запуск: обходит все диапазоны и листы-истории
 function copyAllATTables() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -38,10 +35,9 @@ function copyAllATTables() {
     return;
   }
   try {
-    const sourceSpreadsheetId = '';
-    const targetSpreadsheetId = '';
+    const sourceSpreadsheetId = '1CcdvLUU5V9DgyJllttNTyLVoxIwJXILFvEOFU31W7lY';
+    const targetSpreadsheetId = '10AI7S1fXCbE6kZdGCW4shgzDjK75d24z3K0xQXgHDKA';
     const sourceSheetName = 'Загальна АТ';
-
     const now = new Date();
     const dateTime = Utilities.formatDate(now, 'Europe/Kyiv', 'dd.MM.yy HH:mm');
 
@@ -73,10 +69,9 @@ function copyAllATTables() {
   }
 }
 
-// Универсальная копия + сравнение с предыдущим блоком
 function copyTableWithDiff(sourceSheet, targetSheet, sourceRangeA1, dateTime) {
   if (!sourceSheet || typeof sourceSheet.getRange !== 'function') {
-    throw new Error('sourceSheet не є листом. Перевір триггер: він має викликати обгортку без аргументів.');
+    throw new Error('sourceSheet не є листом.');
   }
   if (!targetSheet) throw new Error('targetSheet не знайдено.');
 
@@ -88,7 +83,7 @@ function copyTableWithDiff(sourceSheet, targetSheet, sourceRangeA1, dateTime) {
   const lastRow = targetSheet.getLastRow();
   const nextRow = lastRow === 0 ? 4 : lastRow + 2;
 
-  // Метка часу в A
+  // Дата/час в колонку A
   for (let i = 0; i < numRows; i++) {
     targetSheet.getRange(nextRow + i, 1)
       .setValue(dateTime)
@@ -98,11 +93,11 @@ function copyTableWithDiff(sourceSheet, targetSheet, sourceRangeA1, dateTime) {
       .setHorizontalAlignment('center');
   }
 
-  // Вставка даних в B:...
+  // Копируем значения
   const dataRange = targetSheet.getRange(nextRow, 2, numRows, numCols);
   dataRange.setValues(values);
 
-  // Стилі (без фону)
+  // Копируем стили (без фона)
   dataRange.setFontColors(sourceRange.getFontColors());
   dataRange.setFontSizes(sourceRange.getFontSizes());
   dataRange.setFontWeights(sourceRange.getFontWeights());
@@ -111,45 +106,40 @@ function copyTableWithDiff(sourceSheet, targetSheet, sourceRangeA1, dateTime) {
   dataRange.setVerticalAlignment(sourceRange.getVerticalAlignment());
   dataRange.setWrapStrategy(sourceRange.getWrapStrategy());
 
-  // Пошук попереднього блоку
+  // Поиск предыдущего блока
   const prevTopRow = findPrevBlockTop(targetSheet, nextRow, numRows);
   const hasPrev = prevTopRow > 0;
 
-  if (hasPrev) {
-    const prevValues = targetSheet.getRange(prevTopRow, 2, numRows, numCols).getValues();
+  if (!hasPrev) {
+    // Первый снимок — без окраски
     for (let i = 0; i < numRows; i++) {
       for (let j = 2; j < numCols; j++) {
-        const cell = dataRange.getCell(i + 1, j + 1);
-        const isPercentCol = (j === numCols - 1);
-        const newVal = toNum(values[i][j], isPercentCol);
-        const oldVal = toNum(prevValues[i][j], isPercentCol);
-        const diff = newVal - oldVal;
-
-        if (diff > 0) {
-          cell.setValue(formatVal(newVal, isPercentCol) + ' ↑ +' + formatVal(diff, isPercentCol))
-              .setBackground('#d4edda');
-        } else if (diff < 0) {
-          cell.setValue(formatVal(newVal, isPercentCol) + ' ↓ ' + formatVal(Math.abs(diff), isPercentCol))
-              .setBackground('#f8d7da');
-        } else {
-          cell.setValue(formatVal(newVal, isPercentCol)).setBackground(null);
-        }
+        dataRange.getCell(i + 1, j + 1).setBackground(null);
       }
     }
-  } else {
-    // Перша база без підсвітки
-    for (let i = 0; i < numRows; i++) {
-      for (let j = 2; j < numCols; j++) {
-        const isPercentCol = (j === numCols - 1);
-        dataRange.getCell(i + 1, j + 1)
-          .setValue(formatVal(toNum(values[i][j], isPercentCol), isPercentCol))
-          .setBackground(null);
+    return;
+  }
+
+  const prevValues = targetSheet.getRange(prevTopRow, 2, numRows, numCols).getValues();
+
+  // Красим только изменения
+  for (let i = 0; i < numRows; i++) {
+    for (let j = 2; j < numCols; j++) {
+      const newVal = toNum(values[i][j]);
+      const oldVal = toNum(prevValues[i][j]);
+      const cell = dataRange.getCell(i + 1, j + 1);
+
+      if (newVal > oldVal) {
+        cell.setBackground('#d4edda'); // зелёный
+      } else if (newVal < oldVal) {
+        cell.setBackground('#f8d7da'); // красный
+      } else {
+        cell.setBackground(null);      // без фона
       }
     }
   }
 }
 
-// Пошук верхньої строки попереднього блоку тієї ж висоти
 function findPrevBlockTop(sheet, nextRow, numRows) {
   let r = nextRow - 1;
   if (r < 2) return 0;
@@ -168,12 +158,10 @@ function isDateStamp(v) {
   return (typeof v === 'string') && /^\d{2}\.\d{2}\.\d{2} \d{2}:\d{2}$/.test(v);
 }
 
-function toNum(v, isPercent) {
+function toNum(v) {
   if (v === null || v === '' || v === undefined) return 0;
   if (typeof v === 'number') return isNaN(v) ? 0 : v;
   let s = String(v)
-    .replace(/↑.*$/, '')
-    .replace(/↓.*$/, '')
     .replace(/%/g, '')
     .replace(/[^\d,\-\.]/g, '')
     .replace(/,/g, '.')
@@ -182,12 +170,6 @@ function toNum(v, isPercent) {
   return isNaN(num) ? 0 : num;
 }
 
-function formatVal(x, isPercent) {
-  if (isPercent) return (Math.round(x * 100) / 100).toFixed(2) + '%';
-  return String(Math.round(x));
-}
-
-// Создаёт лист, если его нет
 function ensureSheet(ss, name) {
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
