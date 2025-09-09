@@ -38,8 +38,8 @@ function copyAllATTables() {
     return;
   }
   try {
-    const sourceSpreadsheetId = '1CcdvLUU5V9DgyJllttNTyLVoxIwJXILFvEOFU31W7lY';
-    const targetSpreadsheetId = '10AI7S1fXCbE6kZdGCW4shgzDjK75d24z3K0xQXgHDKA';
+    const sourceSpreadsheetId = '';
+    const targetSpreadsheetId = '';
     const sourceSheetName = 'Загальна АТ';
 
     const now = new Date();
